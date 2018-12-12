@@ -145,6 +145,5 @@ for epoch_id in range(1, epoch_num + 1):
     if epoch_id % 50 == 0:
         torch.save(encoder.state_dict(), "checkpoint/Encoder_EPOCH_{}.torch".format(epoch_id))
         torch.save(decoder.state_dict(), "checkpoint/Decoder_EPOCH_{}.torch".format(epoch_id))
-
-    plot_file = open("checkpoint/plot.pkl", "wb")
-    pickle.dump(plot_loss, plot_file)
+        plot_file = open("checkpoint/plot.pkl", "wb")
+        pickle.dump(plot_loss, plot_file)
