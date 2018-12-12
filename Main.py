@@ -1,11 +1,12 @@
 import pickle
+import random
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from Model import Model
+from Model import Encoder, Decoder
 from DataStructure import PoetryDataSet
 
 OUTPUT_FILE = open("checkpoint/output.txt", "w", encoding="utf-8")
@@ -24,95 +25,126 @@ dataset_name = ["train", "val"]
 dataset_file = [open("data/proc/{}.pkl".format(n), "rb") for n in dataset_name]
 dataset_list = [pickle.load(f) for f in dataset_file]
 
-epoch_num = 100
-batch_size = 100
+epoch_num = 1000
+seq_length = 7
 vocabulary_size = len(word_dict)
 embedding_dim = 128
-fc_dim = 256
-hidden_size = 64
+hidden_size = 128
+teacher_forcing_ratio = 0.5
+
+START = 0
+END = 1
 
 train_dataset = PoetryDataSet(dataset_list[0])
 valid_dataset = PoetryDataSet(dataset_list[1])
 
-train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=batch_size, drop_last=True)
-valid_dataloader = DataLoader(valid_dataset, shuffle=True, batch_size=batch_size, drop_last=True)
+train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=1, drop_last=True)
+valid_dataloader = DataLoader(valid_dataset, shuffle=True, batch_size=1, drop_last=True)
 
-model = Model(vocab_size=vocabulary_size, embedding_dim=embedding_dim, batch_size=batch_size, fc_dim=fc_dim,
-              hidden_size=hidden_size, word_vec_matrix=word_matrix).cuda()
-optimizer = optim.RMSprop(model.parameters(), lr=0.01, weight_decay=0.0001)
+
+encoder = Encoder(vocab_size=vocabulary_size, hidden_size=hidden_size).cuda()
+decoder = Decoder(vocab_size=vocabulary_size, hidden_size=hidden_size).cuda()
+
+encoder_optimizer = optim.RMSprop(encoder.parameters(), lr=0.01, weight_decay=0.0001)
+decoder_optimizer = optim.RMSprop(decoder.parameters(), lr=0.01, weight_decay=0.0001)
 loss_func = nn.NLLLoss(reduce=True, size_average=True)
 
 
-def train(epoch_id):
-    model.train()
+def proc_poem(input_tensor, target_tensor, evaluate=False):
+    # for one poem
+    encoder_hidden = encoder.init_hidden()
+
+    input_length = input_tensor.shape[0]
+    target_length = target_tensor.shape[0]
+
+    encoder_outputs = torch.zeros(input_length, encoder.hidden_size).cuda()
+
+    loss = 0
+
+    for ei in range(input_length):
+        encoder_output, encoder_hidden = encoder(
+            input_tensor[ei], encoder_hidden)
+        encoder_outputs[ei] = encoder_output[0, 0]
+
+    decoder_input = torch.tensor([[START]]).cuda()
+
+    decoder_hidden = encoder_hidden
+
+    use_teacher_forcing = True if random.random() < teacher_forcing_ratio else False
+    if evaluate:
+        use_teacher_forcing = False
+
+    if use_teacher_forcing:
+        # Teacher forcing: Feed the target as the next input
+        for di in range(target_length):
+            decoder_output, decoder_hidden, decoder_attention = decoder(
+                decoder_input, decoder_hidden, encoder_outputs)
+            loss += loss_func(decoder_output, target_tensor[di])
+            decoder_input = target_tensor[di]  # Teacher forcing
+
+    else:
+        # Without teacher forcing: use its own predictions as the next input
+        for di in range(target_length):
+            decoder_output, decoder_hidden, decoder_attention = decoder(
+                decoder_input, decoder_hidden, encoder_outputs)
+            top_v, top_i = decoder_output.topk(1)
+            decoder_input = top_i.squeeze().detach()  # detach from history as input
+
+            loss += loss_func(decoder_output, target_tensor[di])
+            if decoder_input.item() == END:
+                break
+
+    return loss
+
+def train(epoch_id, plot_loss):
+    encoder.train()
+    decoder.train()
+
     running_loss = 0.
-    running_acc = 0.
-    for poem in train_dataloader:
-        optimizer.zero_grad()
-        project = model(poem[0])
 
-        loss_four = 0.
-        acc_four = 0.
-        for project_batch, tag_batch in zip(project, poem):
-            loss_batch = sum([loss_func(p, t) for p, t in zip(project_batch, tag_batch)])
-            loss_four += loss_batch / batch_size
+    for poem_id, poem in enumerate(train_dataloader):
+        encoder.zero_grad()
+        decoder.zero_grad()
 
-            pred_batch = project_batch.max(dim=2)[1]
-            acc_batch = sum([sum([1 if p == t else 0 for p, t in zip(pred, tag)]) / 7
-                             for pred, tag in zip(pred_batch, tag_batch)])
-            acc_four += acc_batch / batch_size
+        poem = [p.view(-1, 1) for p in poem]
 
-        loss = loss_four / 4
-        acc = acc_four / 4
-
-        print("Loss: {:.5f}, Acc: {:.5f}".format(loss, acc))
-
-        running_loss += float(loss)
-        running_acc += float(acc)
+        loss = proc_poem(poem[0], poem[1]) + proc_poem(poem[2], poem[3])
+        cur_loss = float(loss) / 2 / seq_length
+        plot_loss.append(cur_loss)
 
         loss.backward()
-        optimizer.step()
 
-    running_loss /= (train_dataset.length // batch_size)
+        encoder_optimizer.step()
+        decoder_optimizer.step()
 
-    print("Train: [%d/%d] Loss: %.5f, Acc: %.5f" % (epoch_id + 1, epoch_num, running_loss, running_acc))
-    OUTPUT("Train: [%d/%d] Loss: %.5f, Acc: %.5f" % (epoch_id + 1, epoch_num, running_loss, running_acc))
+        running_loss += loss / 2 / seq_length
 
+    running_loss /= train_dataset.poem_num
+    print("Train: [%d/%d] Loss: %.5f" % (epoch_id, epoch_num, running_loss))
 
-def valid(epoch_id):
-    model.eval()
+def valid(epoch_id, plot_loss):
+    encoder.eval()
+    decoder.eval()
+
     running_loss = 0.
-    running_acc = 0.
-    for poem in valid_dataloader:
-        project = model(poem[0])
 
-        loss_four = 0.
-        acc_four = 0.
-        for project_batch, tag_batch in zip(project, poem):
-            loss_batch = sum([loss_func(p, t) for p, t in zip(project_batch, tag_batch)])
-            loss_four += loss_batch / batch_size
+    for poem_id, poem in enumerate(valid_dataloader):
+        poem = [p.view(-1, 1) for p in poem]
+        loss = proc_poem(poem[0], poem[1], evaluate=True) + proc_poem(poem[2], poem[3], evaluate=True)
+        plot_loss.append(float(loss) / 2 / seq_length)
+        running_loss += loss / 2 / seq_length
 
-            pred_batch = project_batch.max(dim=2)[1]
-            acc_batch = sum([sum([1 if p == t else 0 for p, t in zip(pred, tag)]) / 7
-                             for pred, tag in zip(pred_batch, tag_batch)])
-            acc_four += acc_batch / batch_size
-
-        loss = loss_four / 4
-        acc = acc_four / 4
-
-        running_loss += float(loss)
-        running_acc += float(acc)
-
-    running_loss /= (valid_dataset.length // batch_size)
-    running_loss /= (valid_dataset.length // batch_size)
-
-    print("Valid: [%d/%d] Loss: %.5f, Acc: %.5f" % (epoch_id + 1, epoch_num, running_loss, running_acc))
-    OUTPUT("Valid: [%d/%d] Loss: %.5f, Acc: %.5f" % (epoch_id + 1, epoch_num, running_loss, running_acc))
+    running_loss /= train_dataset.poem_num
+    print("Valid: [%d/%d] Loss: %.5f" % (epoch_id, epoch_num, running_loss))
 
 
-for epoch_id in range(epoch_num):
-    valid(epoch_id)
-    train(epoch_id)
+plot_loss = {"train": [], "valid": []}
+for epoch_id in range(1, epoch_num + 1):
+    train(epoch_id, plot_loss["train"])
+    valid(epoch_id, plot_loss["valid"])
+    if epoch_id % 50 == 0:
+        torch.save(encoder.state_dict(), "checkpoint/Encoder_EPOCH_{}.torch".format(epoch_id))
+        torch.save(decoder.state_dict(), "checkpoint/Decoder_EPOCH_{}.torch".format(epoch_id))
 
-    if (epoch_id + 1) % 5 == 0:
-        torch.save(model.state_dict(), "checkpoint/EPOCH_{}_model.torch".format(epoch_id))
+    plot_file = open("checkpoint/plot.pkl", "wb")
+    pickle.dump(plot_loss, plot_file)

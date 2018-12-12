@@ -8,7 +8,7 @@ def get_id(char):
     if char in character_dict:
         return character_dict[char]
     else:
-        new_id = len(character_dict) + 1
+        new_id = len(character_dict)
         character_dict[char] = new_id
         return new_id
 
@@ -35,7 +35,7 @@ def proc_file(dataset_name, word2vec=False):
     return model
 
 if __name__ == "__main__":
-    character_dict = {}
+    character_dict = {"SOS": 0, "EOS": 1}
 
     train_model = proc_file("train", word2vec=True)
     proc_file("val")
