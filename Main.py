@@ -1,5 +1,6 @@
 import pickle
 import random
+import sys
 
 import torch
 import torch.nn as nn
@@ -121,6 +122,7 @@ def train(epoch_id, plot_loss):
 
     running_loss /= train_dataset.poem_num
     print("Train: [%d/%d] Loss: %.5f" % (epoch_id, epoch_num, running_loss))
+    sys.stdout.flush()
 
 def valid(epoch_id, plot_loss):
     encoder.eval()
@@ -136,6 +138,7 @@ def valid(epoch_id, plot_loss):
 
     running_loss /= train_dataset.poem_num
     print("Valid: [%d/%d] Loss: %.5f" % (epoch_id, epoch_num, running_loss))
+    sys.stdout.flush()
 
 
 plot_loss = {"train": [], "valid": []}
