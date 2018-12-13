@@ -13,7 +13,6 @@ OUTPUT_FILE = open("checkpoint/output.txt", "w", encoding="utf-8")
 
 def OUTPUT(string):
     OUTPUT_FILE.write("{}\n".format(string))
-    OUTPUT_FILE.flush()
 
 
 word_dict_file = open("data/proc/dict.pkl", "rb")
@@ -39,7 +38,7 @@ valid_dataloader = DataLoader(valid_dataset, shuffle=True, batch_size=batch_size
 
 model = Model(vocab_size=vocabulary_size, embedding_dim=embedding_dim, batch_size=batch_size, fc_dim=fc_dim,
               hidden_size=hidden_size, word_vec_matrix=word_matrix).cuda()
-optimizer = optim.RMSprop(model.parameters(), lr=0.01, weight_decay=0.0001)
+optimizer = optim.Adam(model.parameters(), lr=0.01, weight_decay=0.0001)
 loss_func = nn.NLLLoss(reduce=True, size_average=True)
 
 
@@ -49,23 +48,23 @@ def train(epoch_id):
     running_acc = 0.
     for poem in train_dataloader:
         optimizer.zero_grad()
-        project = model(poem[0])
 
-        loss_four = 0.
-        acc_four = 0.
-        for project_batch, tag_batch in zip(project, poem):
-            loss_batch = sum([loss_func(p, t) for p, t in zip(project_batch, tag_batch)])
-            loss_four += loss_batch / batch_size
+        project_first = model(poem[0])
+        loss_first = sum([loss_func(p, t) for p, t in zip(project_first, poem[1])]) / batch_size
+        pred_first = project_first.max(dim=2)[1]
+        acc_first = sum([sum([1 if p == t else 0 for p, t in zip(pred, tag)]) / 7
+                        for pred, tag in zip(pred_first, poem[1])]) / batch_size
 
-            pred_batch = project_batch.max(dim=2)[1]
-            acc_batch = sum([sum([1 if p == t else 0 for p, t in zip(pred, tag)]) / 7
-                             for pred, tag in zip(pred_batch, tag_batch)])
-            acc_four += acc_batch / batch_size
+        project_third = model(poem[2])
+        loss_third = sum([loss_func(p, t) for p, t in zip(project_third, poem[3])]) / batch_size
+        pred_third = project_third.max(dim=2)[1]
+        acc_third = sum([sum([1 if p == t else 0 for p, t in zip(pred, tag)]) / 7
+                        for pred, tag in zip(pred_third, poem[3])]) / batch_size
 
-        loss = loss_four / 4
-        acc = acc_four / 4
+        loss = (loss_first + loss_third) / 2
+        acc = (acc_first + acc_third) / 2
 
-        print("Loss: {:.5f}, Acc: {:.5f}".format(loss, acc))
+        print("Loss: {:.5f}, Acc: {:.5f}".format(float(loss), float(acc)))
 
         running_loss += float(loss)
         running_acc += float(acc)
@@ -111,7 +110,7 @@ def valid(epoch_id):
 
 
 for epoch_id in range(epoch_num):
-    valid(epoch_id)
+    # valid(epoch_id)
     train(epoch_id)
 
     if (epoch_id + 1) % 5 == 0:

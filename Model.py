@@ -57,15 +57,12 @@ class Model(nn.Module):
         first = self.embedding(first)
 
         second, hidden_state = self.basic_lstm(first, hidden_state)
-        third, hidden_state = self.basic_lstm(second, hidden_state)
-        fourth, hidden_state = self.basic_lstm(third, hidden_state)
 
-        first_project = self.classifier(first)
         second_project = self.classifier(second)
-        third_project = self.classifier(third)
-        fourth_project = self.classifier(fourth)
 
-        return first_project, second_project, third_project, fourth_project
+        second_project = self.softmax(second_project)
+
+        return second_project
 
 
 
