@@ -98,8 +98,6 @@ def valid(epoch_id):
         loss = (loss_first + loss_third) / 2
         acc = (acc_first + acc_third) / 2
 
-        print("Loss: {:.5f}, Acc: {:.5f}".format(float(loss), float(acc)))
-
         running_loss += float(loss)
         running_acc += float(acc)
 
