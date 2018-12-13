@@ -82,35 +82,35 @@ def valid(epoch_id):
     model.eval()
     running_loss = 0.
     running_acc = 0.
-    for poem in valid_dataloader:
-        project = model(poem[0])
+    for poem in train_dataloader:
+        project_first = model(poem[0])
+        loss_first = sum([loss_func(p, t) for p, t in zip(project_first, poem[1])]) / batch_size
+        pred_first = project_first.max(dim=2)[1]
+        acc_first = sum([sum([1 if p == t else 0 for p, t in zip(pred, tag)]) / 7
+                        for pred, tag in zip(pred_first, poem[1])]) / batch_size
 
-        loss_four = 0.
-        acc_four = 0.
-        for project_batch, tag_batch in zip(project, poem):
-            loss_batch = sum([loss_func(p, t) for p, t in zip(project_batch, tag_batch)])
-            loss_four += loss_batch / batch_size
+        project_third = model(poem[2])
+        loss_third = sum([loss_func(p, t) for p, t in zip(project_third, poem[3])]) / batch_size
+        pred_third = project_third.max(dim=2)[1]
+        acc_third = sum([sum([1 if p == t else 0 for p, t in zip(pred, tag)]) / 7
+                        for pred, tag in zip(pred_third, poem[3])]) / batch_size
 
-            pred_batch = project_batch.max(dim=2)[1]
-            acc_batch = sum([sum([1 if p == t else 0 for p, t in zip(pred, tag)]) / 7
-                             for pred, tag in zip(pred_batch, tag_batch)])
-            acc_four += acc_batch / batch_size
+        loss = (loss_first + loss_third) / 2
+        acc = (acc_first + acc_third) / 2
 
-        loss = loss_four / 4
-        acc = acc_four / 4
+        print("Loss: {:.5f}, Acc: {:.5f}".format(float(loss), float(acc)))
 
         running_loss += float(loss)
         running_acc += float(acc)
 
     running_loss /= (valid_dataset.length // batch_size)
-    running_loss /= (valid_dataset.length // batch_size)
 
-    print("Valid: [%d/%d] Loss: %.5f, Acc: %.5f" % (epoch_id + 1, epoch_num, running_loss, running_acc))
-    OUTPUT("Valid: [%d/%d] Loss: %.5f, Acc: %.5f" % (epoch_id + 1, epoch_num, running_loss, running_acc))
+    print("Train: [%d/%d] Loss: %.5f, Acc: %.5f" % (epoch_id + 1, epoch_num, running_loss, running_acc))
+    OUTPUT("Train: [%d/%d] Loss: %.5f, Acc: %.5f" % (epoch_id + 1, epoch_num, running_loss, running_acc))
 
 
 for epoch_id in range(epoch_num):
-    # valid(epoch_id)
+    valid(epoch_id)
     train(epoch_id)
 
     if (epoch_id + 1) % 5 == 0:
