@@ -46,7 +46,7 @@ def train(epoch_id):
     model.train()
     running_loss = 0.
     running_acc = 0.
-    for poem in train_dataloader:
+    for poem_id, poem in enumerate(train_dataloader):
         optimizer.zero_grad()
 
         project_first = model(poem[0])
@@ -64,7 +64,8 @@ def train(epoch_id):
         loss = (loss_first + loss_third) / 2
         acc = (acc_first + acc_third) / 2
 
-        print("Loss: {:.5f}, Acc: {:.5f}".format(float(loss), float(acc)))
+        if poem_id % 100 == 0:
+            print("Loss: {:.5f}, Acc: {:.5f}".format(float(loss), float(acc)))
 
         running_loss += float(loss)
         running_acc += float(acc)
@@ -103,8 +104,8 @@ def valid(epoch_id):
 
     running_loss /= (valid_dataset.length // batch_size)
 
-    print("Train: [%d/%d] Loss: %.5f, Acc: %.5f" % (epoch_id + 1, epoch_num, running_loss, running_acc))
-    OUTPUT("Train: [%d/%d] Loss: %.5f, Acc: %.5f" % (epoch_id + 1, epoch_num, running_loss, running_acc))
+    print("Valid: [%d/%d] Loss: %.5f, Acc: %.5f" % (epoch_id + 1, epoch_num, running_loss, running_acc))
+    OUTPUT("Valid: [%d/%d] Loss: %.5f, Acc: %.5f" % (epoch_id + 1, epoch_num, running_loss, running_acc))
 
 
 for epoch_id in range(epoch_num):
