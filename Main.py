@@ -82,7 +82,7 @@ def valid(epoch_id):
     model.eval()
     running_loss = 0.
     running_acc = 0.
-    for poem in train_dataloader:
+    for poem in valid_dataloader:
         project_first = model(poem[0])
         loss_first = sum([loss_func(p, t) for p, t in zip(project_first, poem[1])]) / batch_size
         pred_first = project_first.max(dim=2)[1]
