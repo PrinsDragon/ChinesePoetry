@@ -13,11 +13,10 @@ from DataStructure import PoetryDataSet
 OUTPUT_FILE = open("checkpoint/output.txt", "w", encoding="utf-8")
 SAVE_Delta = 1000
 
+
 def output(string):
     print(string)
-    sys.stdout.flush()
-    OUTPUT_FILE.write("{}\n".format(string))
-    OUTPUT_FILE.flush()
+    print(string, file=OUTPUT_FILE)
 
 
 word_dict_file = open("data/proc/dict.pkl", "rb")
@@ -44,7 +43,6 @@ valid_dataset = PoetryDataSet(dataset_list[1])
 train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=1, drop_last=True)
 valid_dataloader = DataLoader(valid_dataset, shuffle=True, batch_size=1, drop_last=True)
 
-
 encoder = Encoder(vocab_size=vocabulary_size, hidden_size=hidden_size).cuda()
 decoder = Decoder(vocab_size=vocabulary_size, hidden_size=hidden_size).cuda()
 
@@ -53,13 +51,7 @@ decoder_optimizer = optim.RMSprop(decoder.parameters(), lr=0.01, weight_decay=0.
 loss_func = nn.NLLLoss(reduce=True, size_average=True)
 
 plot_loss = {"train": [], "valid": []}
-global_step = 0.
-
-def save(step_id):
-    torch.save(encoder.state_dict(), "checkpoint/STEP_{}_Encoder.torch".format(step_id))
-    torch.save(decoder.state_dict(), "checkpoint/STEP_{}_Decoder.torch".format(step_id))
-    plot_file = open("checkpoint/STEP_{}_plot.pkl".format(step_id), "wb")
-    pickle.dump(plot_loss, plot_file)
+global_step = 0
 
 class SaveHelper:
     def __init__(self, delta):
@@ -69,13 +61,17 @@ class SaveHelper:
 
     def step(self):
         self.global_step += 1
-        if self.save_op and (self.global_step % self.delta):
+        if self.save_op and (self.global_step % self.delta == 0):
             torch.save(encoder.state_dict(), "checkpoint/STEP_{}_Encoder.torch".format(self.global_step))
             torch.save(decoder.state_dict(), "checkpoint/STEP_{}_Decoder.torch".format(self.global_step))
             plot_file = open("checkpoint/STEP_{}_plot.pkl".format(self.global_step), "wb")
             pickle.dump(plot_loss, plot_file)
 
+            print("# Save at step: {}".format(self.global_step))
+
+
 save_helper = SaveHelper(delta=SAVE_Delta)
+
 
 def proc_poem(input_tensor, target_tensor, evaluate=False):
     # for one poem
@@ -123,6 +119,7 @@ def proc_poem(input_tensor, target_tensor, evaluate=False):
 
     return loss
 
+
 def train(epoch_id, plot_loss):
     encoder.train()
     decoder.train()
@@ -138,7 +135,8 @@ def train(epoch_id, plot_loss):
         loss = proc_poem(poem[0], poem[1]) + proc_poem(poem[2], poem[3])
         cur_loss = float(loss) / 2 / seq_length
         plot_loss.append(cur_loss)
-        print("poem id: {}, loss={:.5f}".format(poem_id, cur_loss))
+        if poem_id % 100 == 0:
+            print("poem id: {}, loss={:.5f}".format(poem_id, cur_loss))
 
         save_helper.step()
 
@@ -151,6 +149,7 @@ def train(epoch_id, plot_loss):
 
     running_loss /= train_dataset.poem_num
     output("Train: [%d/%d] Loss: %.5f" % (epoch_id, epoch_num, running_loss))
+
 
 def valid(epoch_id, plot_loss):
     encoder.eval()
@@ -171,4 +170,3 @@ def valid(epoch_id, plot_loss):
 for epoch_id in range(1, epoch_num + 1):
     train(epoch_id, plot_loss["train"])
     valid(epoch_id, plot_loss["valid"])
-

@@ -32,6 +32,7 @@ def proc_file(dataset_name, word2vec=False):
     save_file = open("data/proc/{}.pkl".format(dataset_name), "wb")
     pickle.dump(dataset, save_file)
 
+    print("Finish {}!".format(dataset_name))
     return model
 
 if __name__ == "__main__":

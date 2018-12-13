@@ -27,3 +27,10 @@ def build_rev_dict(dictionary):
         cur_id = dictionary[word]
         rev_dict[cur_id] = word
     return rev_dict
+
+def get_poem(poem_list, rev_dict):
+    ret = [[], [], [], []]
+    for i, sent in enumerate(poem_list):
+        for w in sent:
+            ret[i].append(rev_dict[int(w)])
+    return ret
