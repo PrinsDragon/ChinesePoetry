@@ -114,8 +114,8 @@ def proc_poem(input_tensor, target_tensor, evaluate=False):
             decoder_input = top_i.squeeze().detach()  # detach from history as input
 
             loss += loss_func(decoder_output, target_tensor[di])
-            if decoder_input.item() == END:
-                break
+            # if decoder_input.item() == END:
+            #     break
 
     return loss
 

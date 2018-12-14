@@ -13,7 +13,7 @@ from Model import Encoder, Decoder
 from DataStructure import PoetryDataSet, build_rev_dict, get_poem
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--step", default=570000, type=int)
+parser.add_argument("--step", default=122000, type=int)
 args = parser.parse_args()
 
 STEP_ID = args.step
@@ -29,7 +29,7 @@ word_dict = pickle.load(word_dict_file)
 rev_word_dict = build_rev_dict(word_dict)
 word_matrix = torch.load("data/proc/matrix.torch")
 
-dataset_name = "val"
+dataset_name = "train"
 dataset_file = open("data/proc/{}.pkl".format(dataset_name), "rb")
 dataset_list = pickle.load(dataset_file)
 dataset = PoetryDataSet(dataset_list)
