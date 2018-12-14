@@ -13,10 +13,12 @@ from Model import Encoder, Decoder
 from DataStructure import PoetryDataSet, build_rev_dict, get_poem
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--step", default=5000, type=int)
+parser.add_argument("--step", default=570000, type=int)
 args = parser.parse_args()
 
 STEP_ID = args.step
+encoder_model_path = "checkpoint/STEP_{}_Encoder.torch".format(STEP_ID)
+decoder_model_path = "checkpoint/STEP_{}_Decoder.torch".format(STEP_ID)
 
 # plt.figure()
 # plt.plot(train_plot)
@@ -45,6 +47,9 @@ END = 1
 
 encoder = Encoder(vocab_size=vocabulary_size, hidden_size=hidden_size).cuda()
 decoder = Decoder(vocab_size=vocabulary_size, hidden_size=hidden_size).cuda()
+
+encoder.load_state_dict(torch.load(encoder_model_path))
+decoder.load_state_dict(torch.load(decoder_model_path))
 
 encoder.cuda()
 decoder.cuda()
