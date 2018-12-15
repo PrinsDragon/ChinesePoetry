@@ -11,7 +11,7 @@ from Model import Encoder, Decoder
 from DataStructure import PoetryDataSet
 
 OUTPUT_FILE = open("checkpoint/output.txt", "w", encoding="utf-8")
-SAVE_Delta = 1000
+SAVE_Delta = 5000
 
 
 def output(string):
@@ -33,6 +33,7 @@ vocabulary_size = len(word_dict)
 embedding_dim = 128
 hidden_size = 128
 teacher_forcing_ratio = 0.5
+batch_size = 10000
 
 START = 0
 END = 1
@@ -40,8 +41,8 @@ END = 1
 train_dataset = PoetryDataSet(dataset_list[0])
 valid_dataset = PoetryDataSet(dataset_list[1])
 
-train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=1, drop_last=True)
-valid_dataloader = DataLoader(valid_dataset, shuffle=True, batch_size=1, drop_last=True)
+train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=batch_size, drop_last=True)
+valid_dataloader = DataLoader(valid_dataset, shuffle=True, batch_size=batch_size, drop_last=True)
 
 encoder = Encoder(vocab_size=vocabulary_size, hidden_size=hidden_size).cuda()
 decoder = Decoder(vocab_size=vocabulary_size, hidden_size=hidden_size).cuda()
@@ -52,6 +53,7 @@ loss_func = nn.NLLLoss(reduce=True, size_average=True)
 
 plot_loss = {"train": [], "valid": []}
 global_step = 0
+
 
 class SaveHelper:
     def __init__(self, delta):
@@ -127,25 +129,26 @@ def train(epoch_id, plot_loss):
     running_loss = 0.
 
     for poem_id, poem in enumerate(train_dataloader):
-        encoder.zero_grad()
-        decoder.zero_grad()
+        for i in range(batch_size):
+            encoder.zero_grad()
+            decoder.zero_grad()
 
-        poem = [p.view(-1, 1) for p in poem]
+            poem_input = [poem[t][i].view(-1, 1) for t in range(4)]
 
-        loss = proc_poem(poem[0], poem[1]) + proc_poem(poem[2], poem[3])
-        cur_loss = float(loss) / 2 / seq_length
-        plot_loss.append(cur_loss)
-        if poem_id % 100 == 0:
-            print("poem id: {}, loss={:.5f}".format(poem_id, cur_loss))
+            loss = proc_poem(poem_input[0], poem_input[1])  # + proc_poem(poem[2], poem[3])
+            cur_loss = float(loss) / seq_length
+            plot_loss.append(cur_loss)
+            if (poem_id * batch_size + i) % 1000 == 0:
+                print("poem id: {}, loss={:.5f}".format(poem_id, cur_loss))
 
-        save_helper.step()
+            save_helper.step()
 
-        loss.backward()
+            loss.backward()
 
-        encoder_optimizer.step()
-        decoder_optimizer.step()
+            encoder_optimizer.step()
+            decoder_optimizer.step()
 
-        running_loss += loss / 2 / seq_length
+            running_loss += loss / seq_length
 
     running_loss /= train_dataset.poem_num
     output("Train: [%d/%d] Loss: %.5f" % (epoch_id, epoch_num, running_loss))
@@ -157,13 +160,15 @@ def valid(epoch_id, plot_loss):
 
     running_loss = 0.
 
-    for poem_id, poem in enumerate(valid_dataloader):
-        poem = [p.view(-1, 1) for p in poem]
-        loss = proc_poem(poem[0], poem[1], evaluate=True) + proc_poem(poem[2], poem[3], evaluate=True)
-        plot_loss.append(float(loss) / 2 / seq_length)
-        running_loss += loss / 2 / seq_length
+    for poem_id, poem in enumerate(train_dataloader):
+        for i in range(batch_size):
+            poem_input = [poem[t][i].view(-1, 1) for t in range(4)]
+            loss = proc_poem(poem_input[0], poem_input[1])  # + proc_poem(poem[2], poem[3])
+            cur_loss = float(loss) / seq_length
+            plot_loss.append(cur_loss)
+            running_loss += loss / seq_length
 
-    running_loss /= train_dataset.poem_num
+    running_loss /= valid_dataset.poem_num
     output("Valid: [%d/%d] Loss: %.5f" % (epoch_id, epoch_num, running_loss))
 
 
