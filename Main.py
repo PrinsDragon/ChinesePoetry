@@ -1,58 +1,59 @@
 import pickle
 import random
+import os
 import sys
+import time
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from Model import Encoder, Decoder
-from DataStructure import PoetryDataSet
+from Model import EncoderRNN, LuongAttnDecoderRNN
+from DataStructure import masked_cross_entropy, random_batch, get_poem, build_rev_dict
 
-OUTPUT_FILE = open("checkpoint/output.txt", "w", encoding="utf-8")
-SAVE_Delta = 5000
+directory = "checkpoint_{}".format(time.strftime('%H-%M-%S', time.localtime(time.time())))
+os.makedirs(directory)
+OUTPUT_FILE = open("{}/output.txt".format(directory), "w", encoding="utf-8")
+SAVE_Delta = 100
 
 
-def output(string):
-    print(string)
-    print(string, file=OUTPUT_FILE)
+def output(string, end="\n"):
+    print(string, end=end)
+    print(string, end=end, file=OUTPUT_FILE)
 
 
 word_dict_file = open("data/proc/dict.pkl", "rb")
 word_dict = pickle.load(word_dict_file)
+rev_dict = build_rev_dict(word_dict)
 word_matrix = torch.load("data/proc/matrix.torch")
 
 dataset_name = ["train", "val"]
-dataset_file = [open("data/proc/{}.pkl".format(n), "rb") for n in dataset_name]
-dataset_list = [pickle.load(f) for f in dataset_file]
+dataset_file = [open("data/proc/{}_proc.pkl".format(n), "rb") for n in dataset_name]
+dataset_list = {n: pickle.load(f) for n, f in zip(dataset_name, dataset_file)}
 
-epoch_num = 1000
+step_num = 50000
 seq_length = 7
 vocabulary_size = len(word_dict)
 embedding_dim = 128
 hidden_size = 128
-teacher_forcing_ratio = 0.5
-batch_size = 10000
+teacher_forcing_ratio = 0.8
+batch_size = 100
+layer_num = 2
+attention_model = "general"
+clip = 50.0
+eval_delta = 1
 
-START = 0
-END = 1
+PAD = 0
+SOS = 1
+EOS = 2
 
-train_dataset = PoetryDataSet(dataset_list[0])
-valid_dataset = PoetryDataSet(dataset_list[1])
+encoder = EncoderRNN(vocabulary_size, hidden_size, layer_num).cuda()
+decoder = LuongAttnDecoderRNN(attention_model, hidden_size, vocabulary_size, layer_num).cuda()
 
-train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=batch_size, drop_last=True)
-valid_dataloader = DataLoader(valid_dataset, shuffle=True, batch_size=batch_size, drop_last=True)
-
-encoder = Encoder(vocab_size=vocabulary_size, hidden_size=hidden_size).cuda()
-decoder = Decoder(vocab_size=vocabulary_size, hidden_size=hidden_size).cuda()
-
-encoder_optimizer = optim.RMSprop(encoder.parameters(), lr=0.01, weight_decay=0.0001)
-decoder_optimizer = optim.RMSprop(decoder.parameters(), lr=0.01, weight_decay=0.0001)
-loss_func = nn.NLLLoss(reduce=True, size_average=True)
-
-plot_loss = {"train": [], "valid": []}
-global_step = 0
+encoder_optimizer = optim.Adam(encoder.parameters(), lr=0.01, weight_decay=0.0001)
+decoder_optimizer = optim.Adam(decoder.parameters(), lr=0.01, weight_decay=0.0001)
+loss_func = nn.CrossEntropyLoss(reduce=True, size_average=True)
 
 
 class SaveHelper:
@@ -60,118 +61,161 @@ class SaveHelper:
         self.global_step = 0
         self.delta = delta
         self.save_op = False if delta == -1 else True
+        self.plot_loss = {"train": [], "valid": []}
 
     def step(self):
         self.global_step += 1
         if self.save_op and (self.global_step % self.delta == 0):
-            torch.save(encoder.state_dict(), "checkpoint/STEP_{}_Encoder.torch".format(self.global_step))
-            torch.save(decoder.state_dict(), "checkpoint/STEP_{}_Decoder.torch".format(self.global_step))
-            plot_file = open("checkpoint/STEP_{}_plot.pkl".format(self.global_step), "wb")
-            pickle.dump(plot_loss, plot_file)
+            torch.save(encoder.state_dict(), "{}/STEP_{}_Encoder.torch".format(directory, self.global_step))
+            torch.save(decoder.state_dict(), "{}/STEP_{}_Decoder.torch".format(directory, self.global_step))
+            plot_file = open("{}/STEP_{}_plot.pkl".format(directory, self.global_step), "wb")
+            pickle.dump(self.plot_loss, plot_file)
 
-            print("# Save at step: {}".format(self.global_step))
+            output("# Save at step: {}".format(self.global_step))
 
 
 save_helper = SaveHelper(delta=SAVE_Delta)
 
 
-def proc_poem(input_tensor, target_tensor, evaluate=False):
-    # for one poem
-    encoder_hidden = encoder.init_hidden()
+def train(input_batches, target_batches):
+    # Zero gradients of both optimizers
+    encoder_optimizer.zero_grad()
+    decoder_optimizer.zero_grad()
 
-    input_length = input_tensor.shape[0]
-    target_length = target_tensor.shape[0]
+    loss = 0.
 
-    encoder_outputs = torch.zeros(input_length, encoder.hidden_size).cuda()
+    # Run words through encoder
+    encoder_outputs, encoder_hidden, class_out = encoder(input_batches, None)
 
-    loss = 0
+    # Prepare input and output variables
+    decoder_input = torch.Tensor([SOS] * batch_size).long().cuda()
+    decoder_hidden = encoder_hidden[:decoder.n_layers]  # Use last (forward) hidden state from encoder
 
-    for ei in range(input_length):
-        encoder_output, encoder_hidden = encoder(
-            input_tensor[ei], encoder_hidden)
-        encoder_outputs[ei] = encoder_output[0, 0]
+    max_target_length = target_batches.shape[0]
+    all_decoder_outputs = torch.zeros(max_target_length, batch_size, decoder.output_size).cuda()
 
-    decoder_input = torch.tensor([[START]]).cuda()
+    # Run through decoder one time step at a time
+    for t in range(max_target_length):
+        decoder_output, decoder_hidden, decoder_attn = decoder(
+            decoder_input, decoder_hidden, encoder_outputs
+        )
 
-    decoder_hidden = encoder_hidden
+        loss += loss_func(decoder_output, target_batches[t])
+        loss += loss_func(class_out[t], target_batches[t]) * 0.5
 
-    use_teacher_forcing = True if random.random() < teacher_forcing_ratio else False
-    if evaluate:
-        use_teacher_forcing = False
+        all_decoder_outputs[t] = decoder_output
+        is_teacher = random.random() < teacher_forcing_ratio
+        top1 = decoder_output.max(1)[1]
+        decoder_input = target_batches[t] if is_teacher else top1
 
-    if use_teacher_forcing:
-        # Teacher forcing: Feed the target as the next input
-        for di in range(target_length):
-            decoder_output, decoder_hidden, decoder_attention = decoder(
-                decoder_input, decoder_hidden, encoder_outputs)
-            loss += loss_func(decoder_output, target_tensor[di])
-            decoder_input = target_tensor[di]  # Teacher forcing
+        # decoder_input = target_batches[t]  # Next input is current target
 
-    else:
-        # Without teacher forcing: use its own predictions as the next input
-        for di in range(target_length):
-            decoder_output, decoder_hidden, decoder_attention = decoder(
-                decoder_input, decoder_hidden, encoder_outputs)
-            top_v, top_i = decoder_output.topk(1)
-            decoder_input = top_i.squeeze().detach()  # detach from history as input
+    loss /= max_target_length
 
-            loss += loss_func(decoder_output, target_tensor[di])
-            # if decoder_input.item() == END:
-            #     break
+    # Loss calculation and back propagation
+    # loss = masked_cross_entropy(
+    #     all_decoder_outputs.transpose(0, 1).contiguous(),  # -> batch x seq
+    #     target_batches.transpose(0, 1).contiguous(),  # -> batch x seq
+    #     [max_target_length for _ in range(batch_size)]
+    # )
+    loss.backward()
 
-    return loss
+    # Clip gradient norms
+    ec = torch.nn.utils.clip_grad_norm_(encoder.parameters(), clip)
+    dc = torch.nn.utils.clip_grad_norm_(decoder.parameters(), clip)
 
+    # Update parameters with optimizers
+    encoder_optimizer.step()
+    decoder_optimizer.step()
 
-def train(epoch_id, plot_loss):
-    encoder.train()
-    decoder.train()
+    sample_index = random.randint(0, batch_size - 1)
+    poem = [input_batches.transpose(0, 1)[sample_index],
+            all_decoder_outputs.max(-1)[1].transpose(0, 1)[sample_index],
+            target_batches.transpose(0, 1)[sample_index]]
 
-    running_loss = 0.
-
-    for poem_id, poem in enumerate(train_dataloader):
-        for i in range(batch_size):
-            encoder.zero_grad()
-            decoder.zero_grad()
-
-            poem_input = [poem[t][i].view(-1, 1) for t in range(4)]
-
-            loss = proc_poem(poem_input[0], poem_input[1])  # + proc_poem(poem[2], poem[3])
-            cur_loss = float(loss) / seq_length
-            plot_loss.append(cur_loss)
-            if (poem_id * batch_size + i) % 1000 == 0:
-                print("poem id: {}, loss={:.5f}".format(poem_id, cur_loss))
-
-            save_helper.step()
-
-            loss.backward()
-
-            encoder_optimizer.step()
-            decoder_optimizer.step()
-
-            running_loss += loss / seq_length
-
-    running_loss /= train_dataset.poem_num
-    output("Train: [%d/%d] Loss: %.5f" % (epoch_id, epoch_num, running_loss))
+    return float(loss), ec, dc, poem
 
 
-def valid(epoch_id, plot_loss):
+def evaluate(input_batches, target_batches):
     encoder.eval()
     decoder.eval()
 
-    running_loss = 0.
+    # Run words through encoder
+    encoder_outputs, encoder_hidden, class_out = encoder(input_batches, None)
 
-    for poem_id, poem in enumerate(train_dataloader):
-        for i in range(batch_size):
-            poem_input = [poem[t][i].view(-1, 1) for t in range(4)]
-            loss = proc_poem(poem_input[0], poem_input[1])  # + proc_poem(poem[2], poem[3])
-            cur_loss = float(loss) / seq_length
-            plot_loss.append(cur_loss)
-            running_loss += loss / seq_length
+    loss = 0.
 
-    running_loss /= valid_dataset.poem_num
-    output("Valid: [%d/%d] Loss: %.5f" % (epoch_id, epoch_num, running_loss))
+    # Prepare input and output variables
+    decoder_input = torch.Tensor([SOS] * batch_size).long().cuda()
+    decoder_hidden = encoder_hidden[:decoder.n_layers]  # Use last (forward) hidden state from encoder
+
+    max_target_length = target_batches.shape[0]
+    all_decoder_outputs = torch.zeros(max_target_length, batch_size, decoder.output_size).cuda()
+
+    # Run through decoder one time step at a time
+    for t in range(max_target_length):
+        decoder_output, decoder_hidden, decoder_attn = decoder(
+            decoder_input, decoder_hidden, encoder_outputs
+        )
+
+        loss += loss_func(decoder_output, target_batches[t])
+        loss += loss_func(class_out[t], target_batches[t]) * 0.5
+
+        all_decoder_outputs[t] = decoder_output
+        top1 = decoder_output.max(1)[1]
+        decoder_input = top1
+
+    # Loss calculation and back propagation
+    # loss = masked_cross_entropy(
+    #     all_decoder_outputs.transpose(0, 1).contiguous(),  # -> batch x seq
+    #     target_batches.transpose(0, 1).contiguous(),  # -> batch x seq
+    #     [max_target_length for _ in range(batch_size)]
+    # )
+
+    loss /= batch_size
+
+    sample_index = random.randint(0, batch_size - 1)
+    poem = [input_batches.transpose(0, 1)[sample_index],
+            all_decoder_outputs.max(-1)[1].transpose(0, 1)[sample_index],
+            target_batches.transpose(0, 1)[sample_index]]
+
+    encoder.train()
+    decoder.train()
+
+    return float(loss), poem
 
 
-for epoch_id in range(1, epoch_num + 1):
-    train(epoch_id, plot_loss["train"])
-    valid(epoch_id, plot_loss["valid"])
+train_loss = 0
+for step_id in range(1, step_num + 1):
+    # Get training data for this cycle
+    input_batches, target_batches = random_batch(dataset_list["train"], batch_size)
+
+    # Run the train function
+    loss, ec, dc, poem = train(input_batches, target_batches)
+    train_loss += loss
+
+    save_helper.plot_loss["train"].append(loss)
+
+    if step_id % eval_delta == 0:
+        output("Train: [{}/{}] loss={:.5f}".format(step_id, step_num, train_loss / eval_delta))
+        train_loss = 0
+        poem = get_poem(poem, rev_dict)
+        for sent in poem:
+            for i in range(7):
+                output(sent[i], end="")
+            output("\t", end="")
+        output("")
+        # output("-----------------------------")
+        #
+        # input_batches, target_batches = random_batch(dataset_list["val"], batch_size)
+        # loss, poem = evaluate(input_batches, target_batches)
+        # output("Eval: [{}/{}] loss={:.5f}".format(step_id, step_num, loss))
+        # poem = get_poem(poem, rev_dict)
+        # for sent in poem:
+        #     for i in range(7):
+        #         output(sent[i], end="")
+        #     output("\t", end="")
+        # output("")
+        output("=============================")
+
+    save_helper.step()
