@@ -1,9 +1,10 @@
 import random
 
 import torch
-from torch.utils.data import Dataset
-from torch.nn import functional
+from nltk.translate.bleu_score import corpus_bleu
 from torch.autograd import Variable
+from torch.nn import functional
+
 
 # START = 0
 # END = 1
@@ -32,6 +33,7 @@ def build_rev_dict(dictionary):
         rev_dict[cur_id] = word
     return rev_dict
 
+
 def get_poem(poem_list, rev_dict):
     ret = []
     for i, sent in enumerate(poem_list):
@@ -53,6 +55,7 @@ def sequence_mask(sequence_length, max_len=None):
     seq_length_expand = (sequence_length.unsqueeze(1)
                          .expand_as(seq_range_expand))
     return seq_range_expand < seq_length_expand
+
 
 def masked_cross_entropy(logits, target, length):
     length = Variable(torch.Tensor(length).long()).cuda()
@@ -87,12 +90,13 @@ def masked_cross_entropy(logits, target, length):
     loss = losses.sum() / length.float().sum()
     return loss
 
+
 def random_batch(pairs, batch_size=50):
     input_seqs = []
     target_seqs = []
 
     # Choose random pairs
-    for i in range(batch_size//2):
+    for i in range(batch_size // 2):
         pair = random.choice(pairs)
 
         input_seqs.append(pair[0])
@@ -105,3 +109,16 @@ def random_batch(pairs, batch_size=50):
     target_var = torch.Tensor(target_seqs).long().transpose(0, 1).cuda()
 
     return input_var, target_var
+
+def cal_bleu(pred, gold):
+    one_gram = corpus_bleu(gold, pred, weights=(1, 0, 0, 0))
+    two_gram = corpus_bleu(gold, pred, weights=(0.5, 0.5, 0, 0))
+    three_gram = corpus_bleu(gold, pred, weights=(0.33, 0.33, 0.33, 0))
+    four_gram = corpus_bleu(gold, pred, weights=(0.25, 0.25, 0.25, 0.25))
+
+    return one_gram, two_gram, three_gram, four_gram
+
+# pred = torch.Tensor([[1, 2]]).numpy()
+# gold = torch.Tensor([[[1, 2]]]).numpy()
+# t = cal_bleu(pred, gold)
+# pass

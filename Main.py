@@ -10,17 +10,17 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 from Model import EncoderRNN, LuongAttnDecoderRNN
-from DataStructure import masked_cross_entropy, random_batch, get_poem, build_rev_dict
+from DataStructure import masked_cross_entropy, random_batch, get_poem, build_rev_dict, cal_bleu
 
-directory = "checkpoint_{}".format(time.strftime('%H-%M-%S', time.localtime(time.time())))
-os.makedirs(directory)
-OUTPUT_FILE = open("{}/output.txt".format(directory), "w", encoding="utf-8")
-SAVE_Delta = 100
+directory = "checkpoint/checkpoint_{}".format(time.strftime('%H-%M-%S', time.localtime(time.time())))
+# os.makedirs(directory)
+# OUTPUT_FILE = open("{}/output.txt".format(directory), "w", encoding="utf-8")
+SAVE_Delta = -1
 
 
 def output(string, end="\n"):
     print(string, end=end)
-    print(string, end=end, file=OUTPUT_FILE)
+    # print(string, end=end, file=OUTPUT_FILE)
 
 
 word_dict_file = open("data/proc/dict.pkl", "rb")
@@ -50,6 +50,10 @@ EOS = 2
 
 encoder = EncoderRNN(vocabulary_size, hidden_size, layer_num).cuda()
 decoder = LuongAttnDecoderRNN(attention_model, hidden_size, vocabulary_size, layer_num).cuda()
+
+encoder.load_state_dict(torch.load("checkpoint/STEP_6000_Encoder.torch"))
+decoder.load_state_dict(torch.load("checkpoint/STEP_6000_Decoder.torch"))
+
 
 encoder_optimizer = optim.Adam(encoder.parameters(), lr=0.01, weight_decay=0.0001)
 decoder_optimizer = optim.Adam(decoder.parameters(), lr=0.01, weight_decay=0.0001)
@@ -132,6 +136,11 @@ def train(input_batches, target_batches):
     poem = [input_batches.transpose(0, 1)[sample_index],
             all_decoder_outputs.max(-1)[1].transpose(0, 1)[sample_index],
             target_batches.transpose(0, 1)[sample_index]]
+
+    bleu = cal_bleu(all_decoder_outputs.max(-1)[1].transpose(0, 1).cpu().detach().numpy(),
+                    target_batches.transpose(0, 1).unsqueeze(1).cpu().detach().numpy())
+    # bleu = cal_bleu(all_decoder_outputs.max(-1)[1].transpose(0, 1).cpu().detach().numpy(),
+    #                 all_decoder_outputs.max(-1)[1].transpose(0, 1).unsqueeze(1).cpu().detach().numpy())
 
     return float(loss), ec, dc, poem
 
