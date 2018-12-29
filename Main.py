@@ -13,7 +13,8 @@ from torch.utils.data import DataLoader
 from Model import EncoderRNN, LuongAttnDecoderRNN
 from DataStructure import masked_cross_entropy, random_batch, get_poem, build_rev_dict, cal_bleu, sequential_batch
 
-directory = "checkpoint/checkpoint_{}".format(time.strftime('%H-%M-%S', time.localtime(time.time())))
+TAG = "4Sent-NoMiddle"
+directory = "checkpoint/checkpoint_{}_{}".format(TAG, time.strftime('%H-%M-%S', time.localtime(time.time())))
 os.makedirs(directory)
 OUTPUT_FILE = open("{}/output.txt".format(directory), "w", encoding="utf-8")
 SAVE_Delta = 100
@@ -43,7 +44,7 @@ batch_size = 100
 layer_num = 2
 attention_model = "general"
 clip = 50.0
-eval_delta = 1
+eval_delta = 100
 
 PAD = 0
 SOS = 1
@@ -56,9 +57,8 @@ checkpoint_to_load = 11800
 encoder.load_state_dict(torch.load("checkpoint/STEP_{}_Encoder.torch".format(checkpoint_to_load)))
 decoder.load_state_dict(torch.load("checkpoint/STEP_{}_Decoder.torch".format(checkpoint_to_load)))
 
-
-encoder_optimizer = optim.Adam(encoder.parameters(), lr=0.01, weight_decay=0.0001)
-decoder_optimizer = optim.Adam(decoder.parameters(), lr=0.01, weight_decay=0.0001)
+encoder_optimizer = optim.Adam(encoder.parameters(), lr=0.001, weight_decay=0.000)
+decoder_optimizer = optim.Adam(decoder.parameters(), lr=0.001, weight_decay=0.000)
 loss_func = nn.CrossEntropyLoss(reduce=True, size_average=True)
 
 
@@ -67,7 +67,7 @@ class SaveHelper:
         self.global_step = 0
         self.delta = delta
         self.save_op = False if delta == -1 else True
-        self.plot_loss = {"train": [], "valid": []}
+        self.plot_loss = {"train": [], "valid": [], "train4": []}
 
     def step(self):
         self.global_step += 1
@@ -150,7 +150,7 @@ def train(input_batches, target_batches):
             all_decoder_outputs.max(-1)[1].transpose(0, 1)[sample_index],
             target_batches.transpose(0, 1)[sample_index]]
 
-    return float(loss), ec, dc, poem
+    return float(loss), all_decoder_outputs.max(-1)[1], poem
 
 
 def evaluate(input_batches, target_batches):
@@ -184,16 +184,13 @@ def evaluate(input_batches, target_batches):
         #         decoder_output[j][pred_note[i][j]] *= 0.6
 
         loss += loss_func(decoder_output, target_batches[t])
-        loss += loss_func(class_out[t], target_batches[t]) * 0.5
+        loss += loss_func(class_out[t], target_batches[t])
 
         all_decoder_outputs[t] = decoder_output
         top1 = decoder_output.max(1)[1]
         decoder_input = top1
 
-    loss /= batch_size
-
-    pred = all_decoder_outputs.max(-1)[1].transpose(0, 1).cpu().detach().numpy()
-    gold = target_batches.transpose(0, 1).unsqueeze(1).cpu().detach().numpy()
+    loss /= max_target_length
 
     sample_index = random.randint(0, batch_size - 1)
     poem = [input_batches.transpose(0, 1)[sample_index],
@@ -203,51 +200,81 @@ def evaluate(input_batches, target_batches):
     encoder.train()
     decoder.train()
 
-    return float(loss), pred, gold, poem
+    return float(loss), all_decoder_outputs.max(-1)[1], poem
 
 
-train_loss = 0
+# train_loss = 0
 for step_id in range(1, step_num + 1):
     # Get training data for this cycle
-    input_batches, target_batches = random_batch(dataset_list["train"], batch_size)
+    input_batches, target_batches, res_batches = random_batch(dataset_list["train"], batch_size)
 
     # Run the train function
-    loss, ec, dc, poem = train(input_batches, target_batches)
-    train_loss += loss
+    loss, pred, poem = train(input_batches, target_batches)
+
+    # four sentence
+    middle = torch.zeros(1, batch_size).long().cuda()
+    # loss4, pred4, poem4 = train(torch.cat([input_batches, middle, pred], 0), res_batches)
+    loss4, pred4, poem4 = train(torch.cat([input_batches, pred], 0), res_batches)
+
+    output("Train: [{}/{}] loss={:.5f} loss4={:.5f}".format(step_id, step_num, loss, loss4))
+
+    poem = get_poem(poem, rev_dict)
+    for sent in poem:
+        for i in range(len(sent)):
+            output(sent[i], end="")
+        output("\t", end="")
+    output("")
+    output("-----------------------------")
+
+    poem4 = get_poem(poem4, rev_dict)
+    for sent in poem4:
+        for i in range(len(sent)):
+            output(sent[i], end="")
+        output("\t", end="")
+    output("")
+    output("=============================")
 
     save_helper.plot_loss["train"].append(loss)
+    save_helper.plot_loss["train4"].append(loss4)
 
     if step_id % eval_delta == 0:
-        output("Train: [{}/{}] loss={:.5f}".format(step_id, step_num, train_loss / eval_delta))
-        train_loss = 0
-        poem = get_poem(poem, rev_dict)
-        for sent in poem:
-            for i in range(7):
-                output(sent[i], end="")
-            output("\t", end="")
-        output("")
-        output("-----------------------------")
-
         total_eval_pred = []
         total_eval_gold = []
 
-        for input_batches, target_batches in sequential_batch(dataset_list["val"], batch_size):
-            loss, pred, gold, poem = evaluate(input_batches, target_batches)
-            # poem = get_poem(poem, rev_dict)
-            # for sent in poem:
-            #     for i in range(len(sent)):
-            #         output(sent[i], end="")
-            #     output("\t", end="")
-            # output("")
-            total_eval_pred.append(pred)
-            total_eval_gold.append(gold)
-            # loss, poem = evaluate(input_batches, target_batches)
-            # poem = get_poem(poem, rev_dict)
-            # for sent in poem:
-            #     for i in range(7):
-            #         output(sent[i], end="")
-            #     output("\t", end="")
-            # output("")
+        for input_batches, target_batches, res_batches in sequential_batch(dataset_list["val"], batch_size):
+            loss, pred, poem = evaluate(input_batches, target_batches)
+
+            middle = torch.zeros(1, batch_size).long().cuda()
+            # loss4, pred4, poem4 = evaluate(torch.cat([input_batches, middle, pred], 0), res_batches)
+            loss4, pred4, poem4 = evaluate(torch.cat([input_batches, pred], 0), res_batches)
+
+            output("Eval: loss={:.5f} loss4={:.5f}".format(loss, loss4))
+
+            poem = get_poem(poem, rev_dict)
+            for sent in poem:
+                for i in range(len(sent)):
+                    output(sent[i], end="")
+                output("\t", end="")
+            output("")
+            output("-----------------------------")
+
+            poem4 = get_poem(poem4, rev_dict)
+            for sent in poem4:
+                for i in range(len(sent)):
+                    output(sent[i], end="")
+                output("\t", end="")
+            output("")
+            output("*****************************")
+
+            # eval_pred = torch.cat([pred, pred4[:7, :], pred4[8:, :]], 0).transpose(0, 1).cpu().detach().numpy()
+            # eval_gold = torch.cat([target_batches, res_batches[:7, :], res_batches[8:, :]]).transpose(0, 1).unsqueeze(1)\
+            #     .cpu().detach().numpy()
+            eval_pred = torch.cat([pred, pred4], 0).transpose(0, 1).cpu().detach().numpy()
+            eval_gold = torch.cat([target_batches, res_batches]).transpose(0, 1).unsqueeze(1)\
+                .cpu().detach().numpy()
+
+            total_eval_pred.append(eval_pred)
+            total_eval_gold.append(eval_gold)
 
         total_eval_gold = np.concatenate(total_eval_gold, axis=0)
         total_eval_pred = np.concatenate(total_eval_pred, axis=0)
