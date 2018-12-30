@@ -107,8 +107,8 @@ def random_batch(pairs, batch_size=50):
         input_seqs.append(pair[0])
         target_seqs.append(pair[1])
 
-        # res_seqs.append(pair[2] + [PAD] + pair[3])
-        res_seqs.append(pair[2] + pair[3])
+        res_seqs.append(pair[2] + [PAD] + pair[3])
+        # res_seqs.append(pair[2] + pair[3])
 
         # input_seqs.append(pair[2])
         # target_seqs.append(pair[3])
@@ -131,7 +131,7 @@ def sequential_batch(pairs, batch_size=50):
         pair = torch.Tensor(pairs[batch_size * i: batch_size * (i + 1)])
         yield pair[:, 0, :].long().transpose(0, 1).cuda(), \
               pair[:, 1, :].long().transpose(0, 1).cuda(), \
-              torch.cat([pair[:, 2, :], pair[:, 3, :]], 1).long().transpose(0, 1).cuda()
+              torch.cat([pair[:, 2, :], middle, pair[:, 3, :]], 1).long().transpose(0, 1).cuda()
     # for i in range(times):
     #     pair = torch.Tensor(pairs[batch_size * i: batch_size * (i + 1)])
     #     yield pair[:, 2, :].long().transpose(0, 1).cuda(), \

@@ -13,16 +13,16 @@ from torch.utils.data import DataLoader
 from Model import EncoderRNN, LuongAttnDecoderRNN
 from DataStructure import masked_cross_entropy, random_batch, get_poem, build_rev_dict, cal_bleu, sequential_batch
 
-TAG = "4Sent-NoMiddle"
+TAG = "4Sent-Middle-py"
 directory = "checkpoint/checkpoint_{}_{}".format(TAG, time.strftime('%H-%M-%S', time.localtime(time.time())))
-# os.makedirs(directory)
-# OUTPUT_FILE = open("{}/output.txt".format(directory), "w", encoding="utf-8")
-SAVE_Delta = -1
+os.makedirs(directory)
+OUTPUT_FILE = open("{}/output.txt".format(directory), "w", encoding="utf-8")
+SAVE_Delta = 100
 
 
 def output(string, end="\n"):
     print(string, end=end)
-    # print(string, end=end, file=OUTPUT_FILE)
+    print(string, end=end, file=OUTPUT_FILE)
 
 
 word_dict_file = open("data/proc/dict.pkl", "rb")
@@ -51,11 +51,11 @@ extra_dim_num = 32
 
 hidden_size = 128
 teacher_forcing_ratio = 0.8
-batch_size = 10
+batch_size = 100
 layer_num = 2
-attention_model = "general"
+attention_model = "concat"
 clip = 50.0
-eval_delta = 1
+eval_delta = 100
 
 PAD = 0
 SOS = 1
@@ -73,8 +73,8 @@ decoder = LuongAttnDecoderRNN(attn_model=attention_model, hidden_size=hidden_siz
 # encoder.load_state_dict(torch.load("checkpoint/STEP_{}_Encoder.torch".format(checkpoint_to_load)))
 # decoder.load_state_dict(torch.load("checkpoint/STEP_{}_Decoder.torch".format(checkpoint_to_load)))
 
-encoder_optimizer = optim.Adam(encoder.parameters(), lr=0.01, weight_decay=0.000)
-decoder_optimizer = optim.Adam(decoder.parameters(), lr=0.01, weight_decay=0.000)
+encoder_optimizer = optim.Adam(encoder.parameters(), lr=0.01, weight_decay=0.0001)
+decoder_optimizer = optim.Adam(decoder.parameters(), lr=0.01, weight_decay=0.0001)
 loss_func = nn.CrossEntropyLoss(reduce=True, size_average=True)
 
 class SaveHelper:
@@ -239,8 +239,8 @@ for step_id in range(1, step_num + 1):
 
     # four sentence
     middle = torch.zeros(1, batch_size).long().cuda()
-    # loss4, pred4, poem4 = train(torch.cat([input_batches, middle, pred], 0), res_batches)
-    loss4, pred4, poem4 = train(torch.cat([input_batches, pred], 0), res_batches)
+    loss4, pred4, poem4 = train(torch.cat([input_batches, middle, pred], 0), res_batches)
+    # loss4, pred4, poem4 = train(torch.cat([input_batches, pred], 0), res_batches)
 
     output("Train: [{}/{}] loss={:.5f} loss4={:.5f}".format(step_id, step_num, loss, loss4))
 
@@ -271,8 +271,8 @@ for step_id in range(1, step_num + 1):
             loss, pred, poem = evaluate(input_batches, target_batches)
 
             middle = torch.zeros(1, batch_size).long().cuda()
-            # loss4, pred4, poem4 = evaluate(torch.cat([input_batches, middle, pred], 0), res_batches)
-            loss4, pred4, poem4 = evaluate(torch.cat([input_batches, pred], 0), res_batches)
+            loss4, pred4, poem4 = evaluate(torch.cat([input_batches, middle, pred], 0), res_batches)
+            # loss4, pred4, poem4 = evaluate(torch.cat([input_batches, pred], 0), res_batches)
 
             output("Eval: loss={:.5f} loss4={:.5f}".format(loss, loss4))
 
