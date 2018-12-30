@@ -15,20 +15,27 @@ from DataStructure import masked_cross_entropy, random_batch, get_poem, build_re
 
 TAG = "4Sent-NoMiddle"
 directory = "checkpoint/checkpoint_{}_{}".format(TAG, time.strftime('%H-%M-%S', time.localtime(time.time())))
-os.makedirs(directory)
-OUTPUT_FILE = open("{}/output.txt".format(directory), "w", encoding="utf-8")
-SAVE_Delta = 100
+# os.makedirs(directory)
+# OUTPUT_FILE = open("{}/output.txt".format(directory), "w", encoding="utf-8")
+SAVE_Delta = -1
 
 
 def output(string, end="\n"):
     print(string, end=end)
-    print(string, end=end, file=OUTPUT_FILE)
+    # print(string, end=end, file=OUTPUT_FILE)
 
 
 word_dict_file = open("data/proc/dict.pkl", "rb")
 word_dict = pickle.load(word_dict_file)
 rev_dict = build_rev_dict(word_dict)
 word_matrix = torch.load("data/proc/matrix.torch")
+
+sound_dict_file = open("data/proc/sound_dict_s.pkl", "rb")
+sound_dict_s = pickle.load(sound_dict_file)
+
+sound_dict = sound_dict_s[0]
+char2num = sound_dict_s[1]
+char2final = sound_dict_s[2]
 
 dataset_name = ["train", "val"]
 dataset_file = [open("data/proc/{}_proc.pkl".format(n), "rb") for n in dataset_name]
@@ -38,29 +45,37 @@ step_num = 50000
 seq_length = 7
 vocabulary_size = len(word_dict)
 embedding_dim = 128
+
+extra_dim_sound = 32
+extra_dim_num = 32
+
 hidden_size = 128
 teacher_forcing_ratio = 0.8
 batch_size = 100
 layer_num = 2
 attention_model = "general"
 clip = 50.0
-eval_delta = 100
+eval_delta = 1
 
 PAD = 0
 SOS = 1
 EOS = 2
 
-encoder = EncoderRNN(vocabulary_size, hidden_size, layer_num).cuda()
-decoder = LuongAttnDecoderRNN(attention_model, hidden_size, vocabulary_size, layer_num).cuda()
+encoder = EncoderRNN(input_size=vocabulary_size, hidden_size=hidden_size, n_layers=layer_num,
+                     extra_size_sound=len(sound_dict), extra_size_num=5,
+                     extra_dim_sound=extra_dim_sound, extra_dim_num=extra_dim_num, word_matrix=word_matrix,
+                     ).cuda()
+decoder = LuongAttnDecoderRNN(attn_model=attention_model, hidden_size=hidden_size, output_size=vocabulary_size,
+                              n_layers=layer_num, extra_size_sound=len(sound_dict), extra_size_num=5,
+                              extra_dim_sound=extra_dim_sound, extra_dim_num=extra_dim_num).cuda()
 
-checkpoint_to_load = 11800
-encoder.load_state_dict(torch.load("checkpoint/STEP_{}_Encoder.torch".format(checkpoint_to_load)))
-decoder.load_state_dict(torch.load("checkpoint/STEP_{}_Decoder.torch".format(checkpoint_to_load)))
+# checkpoint_to_load = 11800
+# encoder.load_state_dict(torch.load("checkpoint/STEP_{}_Encoder.torch".format(checkpoint_to_load)))
+# decoder.load_state_dict(torch.load("checkpoint/STEP_{}_Decoder.torch".format(checkpoint_to_load)))
 
 encoder_optimizer = optim.Adam(encoder.parameters(), lr=0.001, weight_decay=0.000)
 decoder_optimizer = optim.Adam(decoder.parameters(), lr=0.001, weight_decay=0.000)
 loss_func = nn.CrossEntropyLoss(reduce=True, size_average=True)
-
 
 class SaveHelper:
     def __init__(self, delta):

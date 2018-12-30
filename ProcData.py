@@ -1,8 +1,12 @@
 import pickle
 import random
+import re
+
 import torch
 import torch.nn.init as init
 from gensim.models import Word2Vec
+from pypinyin import pinyin, STYLE_FINALS_TONE2
+
 
 def get_id(char):
     if char in character_dict:
@@ -11,6 +15,15 @@ def get_id(char):
         new_id = len(character_dict)
         character_dict[char] = new_id
         return new_id
+
+def get_sound_id(sound):
+    if sound in sound_dict:
+        return sound_dict[sound]
+    else:
+        new_id = len(sound_dict)
+        sound_dict[sound] = new_id
+        return new_id
+
 
 def proc_file(dataset_name, word2vec=False, test=False):
     data_path = "data/{}.txt".format(dataset_name)
@@ -39,6 +52,23 @@ def proc_file(dataset_name, word2vec=False, test=False):
     else:
         return dataset_raw
 
+
+def get_num(string):
+    s = re.findall(r"\d+", string)
+    if len(s) == 0:
+        return 0
+    else:
+        return int(s[0])
+
+
+def get_final_sound(string):
+    s = "".join(re.findall(r"\D", string))
+    if s == "":
+        return 0
+    else:
+        return get_sound_id(s)
+
+
 def proc_dataset_raw(dataset_raw, save_tag):
     dataset_proc = []
     for poem in dataset_raw:
@@ -49,12 +79,13 @@ def proc_dataset_raw(dataset_raw, save_tag):
                 if char in character_keep:
                     sent_proc.append(get_id(char))
                 else:
-                    sent_proc.append(random.randint(3, len(character_dict)-1))
+                    sent_proc.append(random.randint(3, len(character_dict) - 1))
             # sent_proc.append(character_dict["EOS"])
             poem_proc.append(sent_proc)
         dataset_proc.append(poem_proc)
     save_file = open("data/proc/{}_proc.pkl".format(save_tag), "wb")
     pickle.dump(dataset_proc, save_file)
+
 
 if __name__ == "__main__":
     character_dict = {"PAD": 0, "SOS": 1, "EOS": 2}
@@ -92,3 +123,19 @@ if __name__ == "__main__":
     torch.save(word_vec_matrix, "data/proc/matrix.torch")
     dict_file = open("data/proc/dict.pkl", "wb")
     pickle.dump(character_dict, dict_file)
+
+    sound_dict = {"PAD": 0}
+    char2num = {}
+    char2final = {}
+    for char in character_keep:
+        py = pinyin(char, style=STYLE_FINALS_TONE2, heteronym=False)[0][0]
+        index = get_id(char)
+        num = get_num(py)
+        final = get_final_sound(py)
+        final_id = get_sound_id(final)
+
+        char2num[index] = num
+        char2final[index] = final_id
+
+    sound_file = open("data/proc/sound_dict_s.pkl", "wb")
+    pickle.dump([sound_dict, char2num, char2final], sound_file)
