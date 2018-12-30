@@ -31,11 +31,8 @@ def get_sound_seqs(char_seq):
                 sound_final_seq[i][j] = char2final[int(char_seq[i][j])]
     else:
         for i in range(char_seq.shape[0]):
-            try:
-                sound_num_seq[i] = char2num[int(char_seq[i])]
-                sound_final_seq[i] = char2final[int(char_seq[i])]
-            except:
-                pass
+            sound_num_seq[i] = char2num[int(char_seq[i])]
+            sound_final_seq[i] = char2final[int(char_seq[i])]
 
     return sound_num_seq, sound_final_seq
 

@@ -51,7 +51,7 @@ extra_dim_num = 32
 
 hidden_size = 128
 teacher_forcing_ratio = 0.8
-batch_size = 100
+batch_size = 10
 layer_num = 2
 attention_model = "general"
 clip = 50.0
@@ -73,8 +73,8 @@ decoder = LuongAttnDecoderRNN(attn_model=attention_model, hidden_size=hidden_siz
 # encoder.load_state_dict(torch.load("checkpoint/STEP_{}_Encoder.torch".format(checkpoint_to_load)))
 # decoder.load_state_dict(torch.load("checkpoint/STEP_{}_Decoder.torch".format(checkpoint_to_load)))
 
-encoder_optimizer = optim.Adam(encoder.parameters(), lr=0.001, weight_decay=0.000)
-decoder_optimizer = optim.Adam(decoder.parameters(), lr=0.001, weight_decay=0.000)
+encoder_optimizer = optim.Adam(encoder.parameters(), lr=0.01, weight_decay=0.000)
+decoder_optimizer = optim.Adam(decoder.parameters(), lr=0.01, weight_decay=0.000)
 loss_func = nn.CrossEntropyLoss(reduce=True, size_average=True)
 
 class SaveHelper:
@@ -225,6 +225,17 @@ for step_id in range(1, step_num + 1):
 
     # Run the train function
     loss, pred, poem = train(input_batches, target_batches)
+
+    if step_id < 1000:
+        output("Train: [{}/{}] loss={:.5f}".format(step_id, step_num, loss))
+        poem = get_poem(poem, rev_dict)
+        for sent in poem:
+            for i in range(len(sent)):
+                output(sent[i], end="")
+            output("\t", end="")
+        output("")
+        output("-----------------------------")
+        continue
 
     # four sentence
     middle = torch.zeros(1, batch_size).long().cuda()
