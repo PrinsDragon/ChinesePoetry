@@ -79,7 +79,7 @@ class EncoderRNN(nn.Module):
         outputs, hidden = self.gru(joint_embedded, hidden)
         outputs = outputs[:, :, :self.hidden_size] + outputs[:, :, self.hidden_size:]  # Sum bidirectional outputs
 
-        class_output = self.classifier(outputs)
+        class_output = 0 # self.classifier(outputs)
 
         return outputs, hidden, class_output
 

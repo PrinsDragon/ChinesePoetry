@@ -120,18 +120,24 @@ def random_batch(pairs, batch_size=50):
     return input_var, target_var, res_var
 
 
-def sequential_batch(pairs, batch_size=50):
+def sequential_batch(pairs, batch_size=50, test=False):
     times = len(pairs) // batch_size
     middle = torch.zeros(batch_size, 1)
     # for i in range(times):
     #     pair = torch.Tensor(pairs[batch_size * i: batch_size * (i + 1)])
     #     yield torch.cat([pair[:, 0, :], pair[:, 1, :]], 1).long().transpose(0, 1).cuda(), \
     #           torch.cat([pair[:, 2, :], pair[:, 3, :]], 1).long().transpose(0, 1).cuda()
-    for i in range(times):
-        pair = torch.Tensor(pairs[batch_size * i: batch_size * (i + 1)])
-        yield pair[:, 0, :].long().transpose(0, 1).cuda(), \
-              pair[:, 1, :].long().transpose(0, 1).cuda(), \
-              torch.cat([pair[:, 2, :], middle, pair[:, 3, :]], 1).long().transpose(0, 1).cuda()
+
+    if test:
+        for i in range(times):
+            pair = torch.Tensor(pairs[batch_size * i: batch_size * (i + 1)])
+            yield pair[:, 0, :].long().transpose(0, 1).cuda()
+    else:
+        for i in range(times):
+            pair = torch.Tensor(pairs[batch_size * i: batch_size * (i + 1)])
+            yield pair[:, 0, :].long().transpose(0, 1).cuda(), \
+                  pair[:, 1, :].long().transpose(0, 1).cuda(), \
+                  torch.cat([pair[:, 2, :], middle, pair[:, 3, :]], 1).long().transpose(0, 1).cuda()
     # for i in range(times):
     #     pair = torch.Tensor(pairs[batch_size * i: batch_size * (i + 1)])
     #     yield pair[:, 2, :].long().transpose(0, 1).cuda(), \
